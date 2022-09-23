@@ -29,6 +29,7 @@ trades_isa = process_data.trade_history_report(trades_isa)
 trades_column_layout = process_data.format_trades_columns(trades_sd) # we can pass either sd or isa here, same layout.
 dividends = process_data.format_dividends_datatable(transactions_sd, transactions_isa)
 fees = process_data.format_fees_datatable(transactions_sd, transactions_isa)
+cash_flow = process_data.calculate_cashflow_summary(transactions_sd, transactions_isa)
 
 # Get current tax year
 this_year = date.today().year
@@ -81,7 +82,7 @@ app.layout = html.Div([
                     DataTable(
                         id='sd-positions-table',
                         columns=trades_column_layout,
-                        data=trades_sd[date_filters[0] & date_filters[1]].to_dict('records'), # "records" specifies a structure of [{column1: row1 value, column2, row2 value} {column1, row2 value...}]
+                        data=trades_sd[date_filters[0] & date_filters[1]].to_dict('records'), # "records" specifies a structure of [{column1: row1 value, column2, row2 value} {column1: row2 value...}]
                         filter_action="native", # add filters
                         sort_action="native", # column header sort buttons
                         style_cell={
@@ -93,7 +94,7 @@ app.layout = html.Div([
                     DataTable(
                         id='isa-positions-table',
                         columns=trades_column_layout,
-                        data=trades_isa[date_filters[2] & date_filters[3]].to_dict('records'), # "records" specifies a structure of [{column1: row1 value, column2, row2 value} {column1, row2 value...}]
+                        data=trades_isa[date_filters[2] & date_filters[3]].to_dict('records'), # "records" specifies a structure of [{column1: row1 value, column2, row2 value} {column1: row2 value...}]
                         filter_action="native", # add filters
                         sort_action="native", # column header sort buttons
                         style_cell={
@@ -101,7 +102,7 @@ app.layout = html.Div([
                             "height":"auto"
                             },
                     ),
-                    html.H3("Summary of Closed Positions"),
+                    html.H2("Summary of Closed Positions"),
                         html.Table([
                             html.Tr([
                                 html.Th(),
@@ -140,8 +141,9 @@ app.layout = html.Div([
                                 html.Td(f'{net_profit_per:,.2f}%', id="trades-net-per"),
                             ]),
                     ], className="table"),
-                
+
                 ], className="partition"),
+                
                 html.Div([
                     html.H1("Dividends"),
                     DataTable(
@@ -167,8 +169,8 @@ app.layout = html.Div([
                             html.Td(f'£ {dividends_summary["isa_total"]:,.2f}', id="dividends-isa-total"),
                         ]),
                         html.Tr([
-                            html.Td("Total"),
-                            html.Td(f'£ {(dividends_summary["sd_total"] + dividends_summary["isa_total"]):,.2f}', id="dividends-total"),
+                            html.Td(html.B("Total")),
+                            html.Td(html.B(f'£ {(dividends_summary["sd_total"] + dividends_summary["isa_total"]):,.2f}', id="dividends-total")),
                         ]),
                     ], className="table"),
                 ], className="partition"),
@@ -200,11 +202,40 @@ app.layout = html.Div([
                             html.Td(f'£ {fees_summary["custody"]:,.2f}', id="custody-fees"),
                         ]),
                         html.Tr([
-                            html.Td("Total"),
-                            html.Td(f'£ {(fees_summary["commission"]+fees_summary["section_31"]+fees_summary["custody"]):,.2f}', id="total-fees"),
+                            html.Td(html.B("Total")),
+                            html.Td(html.B(f'£ {(fees_summary["commission"]+fees_summary["section_31"]+fees_summary["custody"]):,.2f}', id="total-fees")),
                         ]),
                     ], className="table"),
                 ], className="partition"),
+
+                html.Div([
+                    html.H1("Summary of Cash Flow (All Time)"),
+                        html.P(["Describes all cash flow invested into Share Dealing and ISA accounts, money transferred between those accounts, and money withdrawn."]),
+                        html.Table([
+                            html.Tr([
+                                html.Th(),
+                                html.Th("Cash Transferred"),
+                            ]),
+                            html.Tr([
+                                html.Td("Cash to Share Dealing"),
+                                html.Td(f'£ {cash_flow["sd_cash_in"]:,.2f}', id="cf-sd-cash-in"),
+                            ]),
+                            html.Tr([
+                                html.Td("Cash To ISA"),
+                                html.Td(f'£ {cash_flow["isa_cash_in"]:,.2f}', id="isa-sd-cash-in"),
+                            ]),
+                            html.Tr([
+                                html.Td("Share Dealing to ISA"),
+                                html.Td(f'£ {cash_flow["sd_to_isa"]:,.2f}', id="cf-sd-to-isa"),
+                            ]),
+                            html.Tr([
+                                html.Td("Cash Withdrawn"),
+                                html.Td(f'£ {cash_flow["cash_out"]:,.2f}', id="cf-cash-out"),
+                            ]),
+                    ], className="table"),
+                
+                ], className="partition"),
+                
                 dcc.Store(id='trades-summary-data'), # we use this to store values for summary tables
                 dcc.Store(id='summary-data'),
 

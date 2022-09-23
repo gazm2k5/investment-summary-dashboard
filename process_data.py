@@ -66,6 +66,9 @@ def clean_trades(trades_df):
     # Add Consideration in GBP
     trades_df["Consideration (£)"] = trades_df["Consideration"] * trades_df["Conversion rate"]
 
+    # Convert from cents to dollars (IG changed it to cents recently)
+    trades_df["Price"] = trades_df["Price"]/100
+
     return trades_df
 
 # Custom Format
@@ -74,6 +77,7 @@ gbp_format = Format(precision=2, scheme=Scheme.fixed).symbol(Symbol.yes).symbol_
 def format_trades_columns(trades_df):
     """ Expects a trade history df and uses this to provide a column layout for Dash """
     column_layout = [{"name": i, "id": i} for i in trades_df.columns]
+    print(column_layout)
     column_layout[0]["type"] = "datetime"
 
     # Share Price
@@ -81,13 +85,13 @@ def format_trades_columns(trades_df):
     column_layout[6]["format"] = Format(precision=2, scheme=Scheme.fixed) # 2 dp, no scientific notation
 
     # Currency Columns
-    for i in range(7,12):
+    for i in range(7,11):
         column_layout[i]["type"] = "numeric"
         column_layout[i]["format"] = gbp_format
 
     # Percentage format
-    column_layout[12]["type"] = "numeric"
-    column_layout[12]["format"] = FormatTemplate.percentage(1)
+    column_layout[11]["type"] = "numeric"
+    column_layout[11]["format"] = FormatTemplate.percentage(1)
 
     return column_layout
 
@@ -96,19 +100,19 @@ def calculate_trades_summary(trades_df):
     Required as Dash app will filter dates and need to recalculate these """
     filt1 = trades_df["Net Profit (£)"].notna()
 
-    sold_pos = round(trades_df[filt1]["Final Consideration (£)"].sum(), 2)
+    sold_pos = round(trades_df[filt1]["Consideration (£)"].sum(), 2)
     fees = round(abs(trades_df[filt1]["Fees (£)"].sum()), 2)
     net_profit = round(trades_df[filt1]["Net Profit (£)"].sum(), 2)
 
     # %AGE CALCs
     initial_cons = trades_df[filt1]["Initial Consideration (£)"].sum()
-    final_cons = trades_df[filt1]["Final Consideration (£)"].sum()
+    final_cons = trades_df[filt1]["Consideration (£)"].sum()
     net_profit_per = (final_cons/initial_cons - 1)*100
 
     return {"sold_pos": sold_pos, "fees": fees, "net_profit": net_profit, "net_profit_per": net_profit_per, "ic":initial_cons, "fc": final_cons}
 
 def format_dividends_datatable(transactions_sd, transactions_isa):
-    """ Concatenates, sorts and cleans transaction history to display dividends """
+    """ Concatenates, sorts and cleans transaction history to display all dividends """
 
     filt1 = transactions_sd["Summary"] == "Dividend"
     filt2 = transactions_isa["Summary"] == "Dividend"
@@ -167,6 +171,35 @@ def calculate_fees_summary(fees_df):
 
     return {"section_31": section_31, "custody": custody, "commission": commission}
 
+def calculate_cashflow_summary(transactions_sd, transactions_isa):
+    """ Takes in a transactions dataframes and returns totals.
+    Required as Dash app will filter dates and need to recalculate these """
+    filt1 = transactions_sd["Summary"].str.contains("Cash In")
+    filt2 = transactions_sd["Summary"].str.contains("Cash Out")
+    filt3 = transactions_sd["MarketName"].str.contains("Funds Transfer to ISA")
+
+    filt4 = transactions_isa["Summary"].str.contains("Cash In")
+    filt5 = transactions_isa["Summary"].str.contains("Cash Out")
+    filt6 = transactions_isa["MarketName"].str.contains("Funds Transfer from Share dealing")
+
+    sd_cash_in = round(abs(transactions_sd[filt1]["PL Amount"].sum()), 2)
+    sd_cash_out = round(abs(transactions_sd[filt2]["PL Amount"].sum()), 2)
+    isa_cash_in = round(abs(transactions_isa[filt4]["PL Amount"].sum()), 2)
+    isa_cash_out = round(abs(transactions_isa[filt5]["PL Amount"].sum()), 2)
+    sd_to_isa = round(abs(transactions_sd[filt3]["PL Amount"].sum()), 2)
+    verify = round(abs(transactions_isa[filt6]["PL Amount"].sum()), 2)
+
+    cash_out = sd_cash_out + isa_cash_out
+
+    if verify == sd_to_isa:
+        return {"sd_cash_in": sd_cash_in,
+            "isa_cash_in": isa_cash_in,
+            "cash_out": cash_out,
+            "sd_to_isa": sd_to_isa}
+    else:
+        print("unexpected: The amount transferred from isa doesn't match the amount transferred to isa")
+        raise Exception
+
 def trade_history_report(trade_history):
     """ Takes in a trade history.csv DataFrame and adds details such as profit on closed positions 
     Returns only relevant columns in a new dataframe """
@@ -194,7 +227,7 @@ def trade_history_report(trade_history):
 
             # Add each Buy (new position) to a dictionary
             if row["Direction"] == "BUY":
-                positions.append({"qty": row["Quantity"], "price": row["Price"], "fees": abs(row["Commission (£)"] + row["Charges"])})
+                positions.append({"qty": row["Quantity"], "price": row["Price"] * row["Conversion rate"], "fees": abs(row["Commission (£)"] + row["Charges"])})
             
             # When shares are sold, calculate profit using Positions list
             # This takes into account uneven buy/sell quantities using a FIFO model
@@ -203,7 +236,7 @@ def trade_history_report(trade_history):
                 initial_consideration = 0 # running total
                 fees = abs(row["Commission (£)"] + row["Charges"]) # we will add any fees of fully closed positions
                 sell_qty = abs(row["Quantity"]) # Shares to sell. Will be adjusted as we sell off positions
-                final_consideration = sell_qty * row["Price"]
+                final_consideration = sell_qty * row["Price"] * row["Conversion rate"]
 
                 # We iterate through previous buy positions, selling those off first
                 for position in positions:
@@ -240,7 +273,7 @@ def trade_history_report(trade_history):
                             "Market", "Activity", "Direction",
                             "Quantity", "Price",
                             "Consideration (£)",
-                            "Initial Consideration (£)", "Final Consideration (£)",
+                            "Initial Consideration (£)", # "Final Consideration (£)",
                             #"Gross Profit (£)",
                             "Fees (£)", "Net Profit (£)", "Net Profit (%)"]]
 
